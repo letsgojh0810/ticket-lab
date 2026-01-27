@@ -47,6 +47,18 @@ public class ReservationEvent {
         );
     }
 
+    // 예약 실패 이벤트 생성 팩토리 메서드
+    public static ReservationEvent cancelled(Long userId, Long seatId, String seatNumber) {
+        return new ReservationEvent(
+                null,
+                userId,
+                seatId,
+                seatNumber,
+                LocalDateTime.now(),
+                EventType.RESERVATION_CANCELLED
+        );
+    }
+
     // JSON 문자열로 변환 (Kafka 전송용)
     public String toJson() {
         return String.format(

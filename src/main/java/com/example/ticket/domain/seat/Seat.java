@@ -30,4 +30,11 @@ public class Seat {
         }
         this.isReserved = true;
     }
+
+    public void cancel() {
+        if (!this.isReserved) {
+            throw new IllegalStateException("이미 취소되었습니다");
+        }
+        this.isReserved = false;
+    }
 }
