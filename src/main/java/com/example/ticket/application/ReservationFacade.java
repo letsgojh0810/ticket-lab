@@ -9,6 +9,7 @@ import com.example.ticket.domain.seat.SeatRepository;
 import com.example.ticket.domain.seat.SeatStatus;
 import com.example.ticket.infrastructure.kafka.ReservationEventProducer;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.concurrent.TimeUnit;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class ReservationFacade {
@@ -66,8 +68,17 @@ public class ReservationFacade {
             // 따라서 결제하는 동안 락을 길게 잡을 필요가 없음 (성능 최적화)
             lock.unlock();
 
-            // [STEP 4] 결제 시뮬레이션 (50% 확률)
-            System.out.println("💳 유저 " + userId + " 결제 진행 중 (50% 확률)...");
+            // [STEP 4] 결제 시뮬레이션 (10초 대기)
+            log.info("💳 유저 {} 가 좌석 {}번을 선점했습니다. 10초간 결제를 기다립니다...", userId, seatId);
+
+            try {
+                // 10초 동안 스레드를 멈춰서 '선점 상태'를 유지합니다.
+                Thread.sleep(10000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            // 이제 10초 뒤에 결제 로직이 실행됩니다.
             boolean isSuccess = paymentService.processPayment();
 
             if (isSuccess) {
