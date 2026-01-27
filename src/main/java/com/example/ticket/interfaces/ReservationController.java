@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-public class ReservationController {
+public class                 ReservationController {
     private final ReservationFacade reservationFacade;
 
     @PostMapping("/reserve/{seatId}")
