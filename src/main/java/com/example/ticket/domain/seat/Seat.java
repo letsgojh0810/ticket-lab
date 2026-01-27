@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 
 @Entity
 @Getter
-@NoArgsConstructor
+@NoArgsConstructor // JPA용 기본 생성자
 public class Seat {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -19,9 +19,14 @@ public class Seat {
 
     private boolean isReserved;
 
+    public Seat(String seatNumber) {
+        this.seatNumber = seatNumber;
+        this.isReserved = false;
+    }
+
     public void reserve() {
         if (this.isReserved) {
-            throw new IllegalStateException("이미 선점된 좌석입니다.");
+            throw new IllegalStateException("이미 예약된 좌석입니다.");
         }
         this.isReserved = true;
     }
