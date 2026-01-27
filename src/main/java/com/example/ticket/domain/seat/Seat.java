@@ -1,4 +1,4 @@
-package com.example.ticket.domain;
+package com.example.ticket.domain.seat;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -21,7 +21,7 @@ public class Seat {
 
     public void reserve() {
         if (this.isReserved) {
-            throw new IllegalStateException("이미 예약된 좌석입니다.");
+            throw new IllegalStateException("이미 선점된 좌석입니다.");
         }
         this.isReserved = true;
     }

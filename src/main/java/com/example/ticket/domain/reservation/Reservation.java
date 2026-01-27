@@ -1,4 +1,4 @@
-package com.example.ticket.domain;
+package com.example.ticket.domain.reservation;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
