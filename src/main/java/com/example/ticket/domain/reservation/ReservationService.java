@@ -16,7 +16,7 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
 
     @Transactional
-    public void reserve(Long seatId, Long userId) {
+    public Reservation reserve(Long seatId, Long userId) {
         Seat seat = seatRepository.findById(seatId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 좌석입니다."));
 
@@ -25,6 +25,6 @@ public class ReservationService {
 
         // 예약 기록 저장
         Reservation reservation = new Reservation(userId, seatId);
-        reservationRepository.save(reservation);
+        return reservationRepository.save(reservation);
     }
 }
