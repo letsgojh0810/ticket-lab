@@ -6,8 +6,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
+// import org.springframework.mail.SimpleMailMessage;
+// import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -15,7 +15,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class NotificationConsumer {
 
-    private final JavaMailSender mailSender; // application.properties 설정이 자동 주입됨
+    // private final JavaMailSender mailSender; // SMTP 비활성화 - 로그로 대체
     private final ObjectMapper objectMapper; // JSON 변환기
 
     @KafkaListener(topics = "reservation-events", groupId = "ticket-reservation-group")
@@ -41,12 +41,10 @@ public class NotificationConsumer {
     }
 
     private void sendEmail(ReservationEvent event) {
-        SimpleMailMessage mailMessage = new SimpleMailMessage();
+        // SMTP 비활성화: 실제 메일 전송 대신 로그로 대체
 
-        // 💡 테스트를 위해 일단 본인 이메일을 적으세요!
-        // 실무에선 event.getUserId()로 유저 DB를 조회해서 이메일을 가져옵니다.
-        mailMessage.setTo("honeyguardians@gmail.com");
-        mailMessage.setSubject("[티켓 예약 성공] 좌석 예매가 완료되었습니다! 🎉");
+        String recipient = "honeyguardians@gmail.com"; // 실무에서는 유저 DB 조회
+        String subject = "[티켓 예약 성공] 좌석 예매가 완료되었습니다! 🎉";
 
         String content = String.format(
                 "안녕하세요! %d번 회원님.\n\n" +
@@ -55,11 +53,20 @@ public class NotificationConsumer {
                 event.getUserId(), event.getSeatNumber()
         );
 
+        // 로그로 메일 내용 출력
+        log.info("📧 [이메일 시뮬레이션]");
+        log.info("   수신자: {}", recipient);
+        log.info("   제목: {}", subject);
+        log.info("   내용:\n{}", content);
+        log.info("✅ [알림 처리 완료] userId={}, seatNumber={}", event.getUserId(), event.getSeatNumber());
+
+        /* SMTP 활성화 시 아래 코드 사용
+        SimpleMailMessage mailMessage = new SimpleMailMessage();
+        mailMessage.setTo(recipient);
+        mailMessage.setSubject(subject);
         mailMessage.setText(content);
-
-        // 실제 발송! (네트워크 통신이 일어나므로 시간이 조금 걸릴 수 있습니다)
         mailSender.send(mailMessage);
-
-        log.info("✅ [이메일 발송 완료] 수신자: {}, 좌석: {}", "본인메일", event.getSeatNumber());
+        log.info("✅ [이메일 발송 완료] 수신자: {}, 좌석: {}", recipient, event.getSeatNumber());
+        */
     }
 }
