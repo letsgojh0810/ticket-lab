@@ -34,10 +34,9 @@ public class ReservationFacade {
     private static final String LOCK_KEY = "lock:seat:";
 
     public String reserve(Long seatId, Long userId) {
-        // [STEP 1] 대기열 확인: 번호표 확인 및 입장 제한
+        // [STEP 1] Active User 확인 (대기열을 통과한 사용자만 예약 가능)
         if (!waitingQueueService.isAllowed(userId)) {
-            Long rank = waitingQueueService.registerAndGetRank(userId);
-            return String.format("현재 대기 중입니다. 순번: %d번 (차례가 되면 자동으로 입장됩니다)", rank);
+            throw new IllegalStateException("대기열 진입이 필요합니다. /api/v1/queue/enter를 먼저 호출하세요.");
         }
 
         RLock lock = redissonClient.getLock(LOCK_KEY + seatId);
