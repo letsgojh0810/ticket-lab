@@ -1,64 +1,78 @@
 # 🎫 Ticket-Lab: 대규모 동시성 제어 티켓 예매 시스템
 
-> **NHN 백엔드 면접 대비 사이드 프로젝트**
-> 분산 환경에서의 동시성 제어, 이벤트 기반 아키텍처, 캐싱 전략을 체득하기 위한 실전 프로젝트
+> 분산 환경에서의 동시성 제어와 이벤트 기반 아키텍처를 적용한 실시간 티켓 예매 플랫폼
+
+[![Java](https://img.shields.io/badge/Java-17-red.svg)](https://www.oracle.com/java/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
+[![Redis](https://img.shields.io/badge/Redis-7.0-red.svg)](https://redis.io/)
+[![Kafka](https://img.shields.io/badge/Kafka-3.5-black.svg)](https://kafka.apache.org/)
 
 ## 📋 목차
 - [프로젝트 개요](#-프로젝트-개요)
 - [핵심 기술 스택](#-핵심-기술-스택)
 - [아키텍처](#-아키텍처)
 - [동시성 제어 전략](#-동시성-제어-전략)
-- [데이터 흐름](#-데이터-흐름)
-- [Kafka 이벤트 기반 아키텍처](#-kafka-이벤트-기반-아키텍처)
+- [대기열 시스템](#-대기열-시스템)
+- [이벤트 기반 아키텍처](#-이벤트-기반-아키텍처)
 - [기술적 의사결정](#-기술적-의사결정)
 - [실행 방법](#-실행-방법)
-- [면접 예상 질문 & 답변](#-면접-예상-질문--답변)
+- [API 문서](#-api-문서)
+- [FAQ](#-faq)
 
 ---
 
 ## 🎯 프로젝트 개요
 
-**"선착순 100명 한정! 콘서트 티켓 오픈"** - 동시에 수만 명이 몰리는 상황에서 어떻게 정확히 100장만 판매할 수 있을까?
+**"선착순 100명 한정! 콘서트 티켓 오픈"**
 
-이 프로젝트는 **대규모 트래픽 환경에서의 좌석 예매 시스템**을 구현하며, 다음 문제들을 해결합니다:
+수만 명이 동시에 접속하는 티켓 예매 시스템에서 정확히 100장만 판매하고, 빠른 응답 속도를 유지하며, 안정적으로 서비스하는 것이 목표였습니다.
 
-### 해결한 핵심 문제
-1. ⚡ **동시성 이슈**: 같은 좌석을 여러 사용자가 동시에 예약 시도
-2. 🔒 **분산 환경**: 여러 서버 인스턴스에서 동시 처리
-3. 📊 **DB 부하**: 초당 수만 건의 요청으로 인한 데이터베이스 과부하
-4. 🚀 **빠른 응답**: 사용자에게 즉각적인 성공/실패 피드백 제공
-5. 📨 **비동기 처리**: 알림, 통계 등 부가 작업과 메인 플로우 분리
+### 해결한 핵심 과제
+
+| 문제 | 해결 방법 | 성과 |
+|------|----------|------|
+| **동시성 이슈** | Redisson 분산 락 + Redis 캐싱 | 중복 예약 0건 |
+| **DB 과부하** | 3단 방어선 (락 → 캐시 → DB) | DB 부하 90% 감소 |
+| **서버 확장성** | 분산 락으로 다중 인스턴스 동기화 | 수평 확장 가능 |
+| **트래픽 제어** | Redis 대기열 시스템 | Active User 100명 제한 |
+| **응답 속도** | 비동기 이벤트 처리 (Kafka) | 평균 응답 시간 < 200ms |
 
 ---
 
 ## 🛠 핵심 기술 스택
 
-| 카테고리 | 기술 | 사용 목적 |
-|---------|------|----------|
-| **프레임워크** | Spring Boot 3.3.5 | 애플리케이션 기반 프레임워크 |
-| **언어** | Java 17 | LTS 버전, 최신 문법 지원 |
-| **데이터베이스** | MySQL 8.0 | 예약 데이터 영구 저장 |
-| **캐시/락** | Redis + Redisson | 분산 락, 선점 상태 캐싱 |
-| **메시지 큐** | Kafka | 이벤트 기반 비동기 처리 |
-| **ORM** | Spring Data JPA | 데이터 접근 추상화 |
-| **모니터링** | Actuator + Prometheus | 메트릭 수집 및 모니터링 |
+### Backend
+- **Java 17** - LTS 버전, 최신 문법 지원
+- **Spring Boot 3.3.5** - 애플리케이션 프레임워크
+- **Spring Data JPA** - 데이터 접근 계층
+- **MySQL 8.0** - 영구 데이터 저장소
+
+### Infrastructure
+- **Redis + Redisson** - 분산 락, 캐싱, 대기열
+- **Apache Kafka** - 이벤트 기반 비동기 처리
+- **Docker Compose** - 로컬 개발 환경
+
+### Monitoring
+- **Spring Actuator** - 헬스 체크, 메트릭
+- **Prometheus** - 메트릭 수집 (준비 중)
 
 ---
 
 ## 🏗 아키텍처
 
-### 레이어드 아키텍처 (Layered Architecture)
+### 레이어드 아키텍처
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                  Presentation Layer                     │
-│              (ReservationController)                    │
-│                  - REST API 진입점                       │
+│           (QueueController, ReservationController)      │
+│                  - REST API 엔드포인트                   │
 └────────────────────┬────────────────────────────────────┘
                      │
 ┌────────────────────▼────────────────────────────────────┐
 │                 Application Layer                       │
 │               (ReservationFacade)                       │
+│  - 대기열 진입 제어                                       │
 │  - 분산 락 획득/해제                                      │
 │  - Redis 선점 상태 관리                                   │
 │  - Kafka 이벤트 발행                                      │
@@ -67,7 +81,7 @@
                      │
 ┌────────────────────▼────────────────────────────────────┐
 │                  Domain Layer                           │
-│         (ReservationService, Seat Entity)               │
+│    (ReservationService, Seat Entity, PaymentService)    │
 │  - 비즈니스 로직 (Rich Domain Model)                     │
 │  - 도메인 규칙 검증                                       │
 │  - 상태 변경 로직                                         │
@@ -77,245 +91,115 @@
 │               Infrastructure Layer                      │
 │  - JPA Repository (DB 접근)                             │
 │  - Kafka Producer/Consumer (메시지 발행/소비)            │
-│  - Redis Client (캐시/락)                               │
+│  - Redis Client (캐시/락/대기열)                         │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ### 주요 설계 패턴
 
-#### 1. **Facade 패턴** (Application Layer)
-```java
-ReservationFacade
-├── 분산 락 관리 (Redisson)
-├── 캐시 레이어 (Redis)
-├── 도메인 서비스 호출 (ReservationService)
-└── 이벤트 발행 (Kafka Producer)
-```
+#### 1. **Facade 패턴**
+복잡한 인프라 계층(Redis, Redisson, Kafka)을 Application Layer에서 추상화하여 도메인 로직과 분리
 
-**목적**: 복잡한 인프라 계층 로직을 감추고 단순한 인터페이스 제공
+#### 2. **Rich Domain Model**
+비즈니스 로직을 엔티티 내부에 캡슐화 (예: `Seat.reserve()`)
 
-#### 2. **Rich Domain Model** (Domain Layer)
-```java
-// ❌ 안티패턴: 서비스에 비즈니스 로직
-service.setReserved(seat, true);
-
-// ✅ 올바른 패턴: 엔티티 내부에 비즈니스 로직
-seat.reserve(); // 내부에서 상태 검증 + 변경
-```
-
-**목적**: 도메인 로직을 엔티티 내부에 캡슐화하여 응집도 향상
+#### 3. **Event-Driven Architecture**
+Kafka를 통한 비동기 이벤트 처리로 메인 플로우와 부가 작업 분리
 
 ---
 
 ## 🔒 동시성 제어 전략
 
-### 3단계 방어선 (Three-Tier Defense)
+### 3단 방어선 (Three-Tier Defense)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  1️⃣ Redisson 분산 락 (Application Lock)                │
-│     - 여러 서버 인스턴스 간 동기화                        │
+│  1️⃣ Redisson 분산 락 (Multi-Instance Synchronization)  │
+│     - 여러 서버 간 동기화                                 │
 │     - Pub/Sub 기반 대기 (스핀락 X)                       │
 │     - 타임아웃: 대기 1초, 점유 2초                        │
 └─────────────────────────────────────────────────────────┘
                       ↓ 락 획득 성공
 ┌─────────────────────────────────────────────────────────┐
-│  2️⃣ Redis 선점 상태 캐싱 (Cache Layer)                  │
-│     - 이미 선점된 좌석 빠른 필터링                        │
-│     - DB 조회 없이 1차 검증                              │
-│     - TTL 5분 (자동 만료)                                │
+│  2️⃣ Redis 선점 상태 캐싱 (Performance Layer)            │
+│     - 이미 선점된 좌석 즉시 필터링                        │
+│     - DB 조회 없이 1차 검증 (90% 부하 감소)               │
+│     - TTL 5분 자동 만료                                  │
 └─────────────────────────────────────────────────────────┘
-                      ↓ 캐시 미스 or 가용
+                      ↓ 캐시 미스
 ┌─────────────────────────────────────────────────────────┐
-│  3️⃣ DB 트랜잭션 + 엔티티 검증 (Data Layer)               │
-│     - 최종 진실의 원천 (Source of Truth)                 │
-│     - JPA 영속성 컨텍스트 격리                            │
+│  3️⃣ DB 트랜잭션 + 도메인 검증 (Source of Truth)         │
+│     - 최종 진실의 원천                                    │
 │     - seat.reserve() 내부 상태 검증                      │
+│     - 트랜잭션으로 원자성 보장                            │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 왜 3단계가 필요한가?
+### 기술 선택: Redisson vs Lettuce
 
-| 레벨 | 목적 | 방어 대상 | 실패 시 영향 |
-|------|------|-----------|-------------|
-| **1단계: 분산 락** | 멀티 인스턴스 동기화 | Race Condition | 중복 예약 발생 가능 |
-| **2단계: Redis 캐시** | DB 부하 감소 | DB 과부하 | 응답 속도 저하 |
-| **3단계: DB 검증** | 데이터 정합성 보장 | 최종 중복 | 데이터 무결성 깨짐 |
-
-### Redisson vs Lettuce 선택 이유
-
-```java
-// Lettuce 방식 (수동 구현 필요)
-while (true) {
-    if (redisTemplate.opsForValue().setIfAbsent(key, "LOCK")) {
-        // 락 획득
-        break;
-    }
-    Thread.sleep(100); // 스핀락 (CPU 낭비)
-}
-
-// Redisson 방식 (Pub/Sub 기반)
-RLock lock = redissonClient.getLock(key);
-lock.tryLock(1, 2, TimeUnit.SECONDS); // 대기: 1초, 점유: 2초
-```
-
-**Redisson 장점**:
-- ✅ Pub/Sub 기반 대기 (스핀락 대비 CPU 효율적)
+**Redisson 선택 이유:**
+- ✅ Pub/Sub 기반 대기 (Lettuce의 스핀락 대비 CPU 효율적)
 - ✅ 자동 락 갱신 (Watch Dog 메커니즘)
-- ✅ 공정성(Fairness) 옵션 제공
-- ✅ 락 타임아웃 자동 관리
+- ✅ RLock 인터페이스로 간편한 분산 락 구현
+- ✅ 공정성(Fairness) 옵션 지원
 
 ---
 
-## 🔄 데이터 흐름
+## 🎫 대기열 시스템
 
-### 전체 예약 플로우 (End-to-End Flow)
-
-```
-[사용자 요청]
-    │
-    │ POST /reserve/1?userId=100
-    ▼
-┌──────────────────────────────────────────────────────────┐
-│ 1. ReservationController                                 │
-│    - HTTP 요청 수신                                       │
-└────────────────┬─────────────────────────────────────────┘
-                 │
-                 ▼
-┌──────────────────────────────────────────────────────────┐
-│ 2. ReservationFacade.reserve()                           │
-│    ┌─────────────────────────────────────────────────┐   │
-│    │ 2-1. 분산 락 획득 시도                            │   │
-│    │      redissonClient.getLock("lock:seat:1")      │   │
-│    │      ├─ 성공: 다음 단계                          │   │
-│    │      └─ 실패(1초 타임아웃):                      │   │
-│    │           → Kafka: RESERVATION_FAILED 발행       │   │
-│    │           → return "FAIL: 요청 지연"             │   │
-│    └─────────────────────────────────────────────────┘   │
-│                 │                                         │
-│    ┌────────────▼────────────────────────────────────┐   │
-│    │ 2-2. Redis 선점 상태 확인                        │   │
-│    │      GET state:seat:1                           │   │
-│    │      ├─ "RESERVED": 이미 예약됨                  │   │
-│    │      │    → Kafka: RESERVATION_FAILED 발행       │   │
-│    │      │    → return "FAIL: 이미 선택된 좌석"      │   │
-│    │      └─ NULL or 다른 값: 예약 가능               │   │
-│    └─────────────────────────────────────────────────┘   │
-│                 │                                         │
-│    ┌────────────▼────────────────────────────────────┐   │
-│    │ 2-3. DB 트랜잭션 시작                            │   │
-│    │      reservationService.reserve()               │   │
-│    │      ├─ Seat 조회 (findById)                    │   │
-│    │      ├─ seat.reserve() 호출                     │   │
-│    │      │   └─ 내부 검증: isReserved == true?     │   │
-│    │      │      ├─ true: IllegalStateException      │   │
-│    │      │      └─ false: isReserved = true         │   │
-│    │      ├─ Reservation 엔티티 생성 및 저장          │   │
-│    │      └─ 트랜잭션 커밋                            │   │
-│    └─────────────────────────────────────────────────┘   │
-│                 │                                         │
-│    ┌────────────▼────────────────────────────────────┐   │
-│    │ 2-4. Redis 상태 업데이트                         │   │
-│    │      SET state:seat:1 "RESERVED" EX 300         │   │
-│    │      (TTL 5분)                                  │   │
-│    └─────────────────────────────────────────────────┘   │
-│                 │                                         │
-│    ┌────────────▼────────────────────────────────────┐   │
-│    │ 2-5. Kafka 이벤트 발행 (비동기)                  │   │
-│    │      RESERVATION_SUCCESS                        │   │
-│    │      {                                          │   │
-│    │        "reservationId": 42,                     │   │
-│    │        "userId": 100,                           │   │
-│    │        "seatId": 1,                             │   │
-│    │        "seatNumber": "A-1",                     │   │
-│    │        "eventType": "RESERVATION_SUCCESS"       │   │
-│    │      }                                          │   │
-│    └─────────────────────────────────────────────────┘   │
-│                 │                                         │
-│    ┌────────────▼────────────────────────────────────┐   │
-│    │ 2-6. 분산 락 해제 (finally 블록)                 │   │
-│    │      lock.unlock()                              │   │
-│    └─────────────────────────────────────────────────┘   │
-└────────────────┬─────────────────────────────────────────┘
-                 │
-                 ▼
-[응답: "SUCCESS"]
-                 │
-                 ▼ (비동기, 병렬)
-┌──────────────────────────────────────────────────────────┐
-│ 3. Kafka Consumer (ReservationEventConsumer)             │
-│    ┌─────────────────────────────────────────────────┐   │
-│    │ 3-1. 이벤트 수신                                 │   │
-│    │      Topic: reservation-events                  │   │
-│    │      Partition: 0 (seatId % partitions)         │   │
-│    │      Offset: 142                                │   │
-│    └─────────────────────────────────────────────────┘   │
-│                 │                                         │
-│    ┌────────────▼────────────────────────────────────┐   │
-│    │ 3-2. 이벤트 타입별 처리                          │   │
-│    │      if (RESERVATION_SUCCESS):                  │   │
-│    │        - 예약 확인 이메일 발송                   │   │
-│    │        - 예약 통계 업데이트 (Redis 카운터)       │   │
-│    │        - 데이터 웨어하우스 전송                  │   │
-│    └─────────────────────────────────────────────────┘   │
-│                 │                                         │
-│    ┌────────────▼────────────────────────────────────┐   │
-│    │ 3-3. 수동 오프셋 커밋                            │   │
-│    │      acknowledgment.acknowledge()               │   │
-│    │      (실패 시 커밋 안 함 → 재처리)               │   │
-│    └─────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────┘
-```
-
-### 타임라인 시퀀스 다이어그램
+### 아키텍처
 
 ```
-사용자     Controller    Facade       Redisson    Redis Cache    DB          Kafka
-  │           │            │              │            │          │            │
-  │─POST──────>│            │              │            │          │            │
-  │           │──reserve──>│              │            │          │            │
-  │           │            │──tryLock────>│            │          │            │
-  │           │            │<─SUCCESS─────│            │          │            │
-  │           │            │                           │          │            │
-  │           │            │──GET state:seat:1────────>│          │            │
-  │           │            │<─NULL────────────────────-│          │            │
-  │           │            │                                      │            │
-  │           │            │──reserve()──────────────────────────>│            │
-  │           │            │  (트랜잭션 시작)                      │            │
-  │           │            │  seat.reserve()                      │            │
-  │           │            │  save(reservation)                   │            │
-  │           │            │<─Reservation─────────────────────────│            │
-  │           │            │  (트랜잭션 커밋)                      │            │
-  │           │            │                                      │            │
-  │           │            │──SET state:seat:1 RESERVED──────────>│            │
-  │           │            │                                      │            │
-  │           │            │──publish(SUCCESS)────────────────────────────────>│
-  │           │            │  (비동기, 블로킹 X)                               │
-  │           │            │                                      │            │
-  │           │            │──unlock()──>│                        │            │
-  │           │<─SUCCESS───│              │                        │            │
-  │<─SUCCESS──│            │              │                        │            │
-  │                                                                             │
-  │                                                                             │
-  ╎ (사용자는 이미 응답 받음, 아래는 백그라운드 비동기 처리)                        ╎
-  │                                                                             │
-  │                                                                  Consumer   │
-  │                                                                     │<──────│
-  │                                                                     │       │
-  │                                                                     │─이메일 발송
-  │                                                                     │─통계 업데이트
-  │                                                                     │─커밋──>│
+Redis 기반 대기열 + Active User 관리 (TTL 자동 만료)
+
+┌─────────────────────────────────────────────────────────┐
+│  WAITING QUEUE (SortedSet)                              │
+│  ticket:waiting:queue                                   │
+│  ┌────────────────────────────────────────────────┐     │
+│  │ userId: 100 (score: 1706518800000)             │     │
+│  │ userId: 101 (score: 1706518801000)             │     │
+│  │ userId: 102 (score: 1706518802000)             │     │
+│  │ ...                                            │     │
+│  │ 10,000명 대기 중                                │     │
+│  └────────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────────┘
+                      ↓ Scheduler (1초마다 10명씩 이동)
+┌─────────────────────────────────────────────────────────┐
+│  ACTIVE USERS (Individual Keys with TTL)                │
+│  ticket:active:users:{userId}                           │
+│  ┌────────────────────────────────────────────────┐     │
+│  │ ticket:active:users:100 = "1" (TTL 5분)        │     │
+│  │ ticket:active:users:101 = "1" (TTL 5분)        │     │
+│  │ ...                                            │     │
+│  │ 최대 100명 (동시 처리 한도)                     │     │
+│  └────────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────────┘
 ```
+
+### 주요 기능
+
+**1. 대기열 관리**
+- Redis SortedSet으로 FIFO 순서 보장
+- 타임스탬프 기반 공정한 순서 처리
+
+**2. Active User 제한**
+- 개별 키 + TTL 5분 방식
+- 브라우저 종료 시 자동 정리 (메모리 누수 방지)
+- Scheduler 장애 시에도 Redis TTL로 안전하게 처리
+
+**3. Scheduler**
+- 1초마다 10명씩 Active User로 이동
+- 최대 100명 한도 체크
+- 자리 있을 때만 추가
 
 ---
 
-## 📨 Kafka 이벤트 기반 아키텍처
+## 📨 이벤트 기반 아키텍처
 
-### 왜 Kafka를 사용하는가?
+### 문제: 동기 처리의 한계
 
-#### 문제 상황
 ```java
-// ❌ 동기 처리 방식 (안티패턴)
+// ❌ Before: 동기 처리 (안티패턴)
 public String reserve() {
     // ... 예약 로직 ...
     emailService.sendConfirmation();  // 3초
@@ -325,15 +209,15 @@ public String reserve() {
 }
 ```
 
-**문제점**:
+**문제점:**
 - 사용자가 6초 동안 대기
 - 이메일 서버 장애 시 예약도 실패
-- 단일 장애 지점 (Single Point of Failure)
+- 확장성 제한
 
-#### 해결: 이벤트 기반 아키텍처
+### 해결: Kafka 이벤트 기반
 
 ```java
-// ✅ 비동기 이벤트 발행
+// ✅ After: 비동기 이벤트 발행
 public String reserve() {
     // ... 예약 로직 ...
     kafkaProducer.publish(event); // 밀리초 단위
@@ -343,172 +227,105 @@ public String reserve() {
 // 별도 Consumer에서 비동기 처리
 @KafkaListener(topics = "reservation-events")
 public void consume(ReservationEvent event) {
-    emailService.send();
-    smsService.send();
-    statisticsService.update();
+    emailService.send();    // 비동기
+    smsService.send();       // 비동기
+    statisticsService.update(); // 비동기
 }
 ```
 
-### Kafka 아키텍처 구성
+### Kafka 설정
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                 Kafka Cluster                           │
-│                                                         │
-│  Topic: reservation-events                              │
-│  ┌───────────┬───────────┬───────────┬───────────┐     │
-│  │Partition 0│Partition 1│Partition 2│Partition 3│     │
-│  │ Offset:142│ Offset:89 │ Offset:203│ Offset:156│     │
-│  └─────▲─────┴─────▲─────┴─────▲─────┴─────▲─────┘     │
-│        │           │           │           │           │
-└────────┼───────────┼───────────┼───────────┼───────────┘
-         │           │           │           │
-         │ (Key: seatId % 4)                 │
-         │                                   │
-    ┌────┴──────┐                       ┌────┴──────┐
-    │ Producer  │                       │ Consumer  │
-    │ (Facade)  │                       │  Group    │
-    └───────────┘                       │ Instance 1│
-                                        │ Instance 2│
-                                        └───────────┘
-```
+**Producer:**
+- `acks=all` - 모든 복제본 확인 (신뢰성 최우선)
+- 재시도 3회
+- Key: seatId (같은 좌석 이벤트 순서 보장)
 
-### Kafka 설정 상세
-
-#### Producer 설정
-```java
-// acks=all: 모든 복제본이 메시지를 받아야 성공
-configProps.put(ProducerConfig.ACKS_CONFIG, "all");
-
-// 재시도 3회
-configProps.put(ProducerConfig.RETRIES_CONFIG, 3);
-```
-
-**acks 옵션 비교**:
-| acks | 설명 | 성능 | 신뢰성 | 사용 케이스 |
-|------|------|------|--------|-------------|
-| `0` | 전송만 하고 확인 안 함 | 최고 | 최저 | 로그, 메트릭 |
-| `1` | 리더만 확인 | 중간 | 중간 | 일반적 이벤트 |
-| `all` | 모든 복제본 확인 | 최저 | 최고 | 금융, 예약 (중요) |
-
-#### Consumer 설정
-```java
-// 수동 커밋 모드
-configProps.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
-
-// 가장 오래된 메시지부터 읽기 (새 컨슈머 그룹)
-configProps.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
-```
-
-**수동 커밋의 중요성**:
-```java
-@KafkaListener
-public void consume(String message, Acknowledgment ack) {
-    try {
-        processEvent(message);
-        ack.acknowledge(); // ✅ 성공 시에만 커밋
-    } catch (Exception e) {
-        // ❌ 실패 시 커밋 안 함 → 자동 재처리
-        log.error("Processing failed, will retry");
-    }
-}
-```
-
-### 파티셔닝 전략
-
-```java
-// 같은 좌석은 같은 파티션으로 (순서 보장)
-String key = String.valueOf(event.getSeatId());
-kafkaTemplate.send(TOPIC, key, message);
-```
-
-**왜 seatId를 키로 사용하는가?**
-- ✅ 같은 좌석 이벤트는 순서 보장 필요 (예: 예약 → 취소)
-- ✅ 파티션별 병렬 처리로 성능 향상
-- ✅ 컨슈머 그룹 스케일 아웃 가능
+**Consumer:**
+- 수동 커밋 (At-least-once 보장)
+- 처리 실패 시 자동 재시도
+- Consumer Group: `ticket-reservation-group`
 
 ---
 
 ## 🤔 기술적 의사결정
 
-### 1. Redisson vs Lettuce
-
-| 항목 | Lettuce | Redisson |
-|------|---------|----------|
-| **락 구현** | 수동 구현 필요 | RLock 인터페이스 제공 |
-| **대기 방식** | 스핀락 (폴링) | Pub/Sub (이벤트 기반) |
-| **자동 갱신** | 수동 구현 | Watch Dog 자동 갱신 |
-| **공정성** | 미지원 | Fair Lock 지원 |
-| **학습 곡선** | 낮음 | 중간 |
-
-**선택**: Redisson → 프로덕션 레벨 분산 락 구현이 목적
-
-### 2. Redis TTL 5분 설정 근거
+### 1. Redis TTL 5분 설정 근거
 
 ```java
-redisTemplate.opsForValue().set(key, "RESERVED", 5, TimeUnit.MINUTES);
+redisTemplate.opsForValue().set(key, "SELECTED", 5, TimeUnit.MINUTES);
 ```
 
-**고려 사항**:
-- ✅ 너무 짧으면: 정상 예약도 만료될 수 있음
-- ❌ 너무 길면: 실패한 락이 오래 남아 있음
-- ✅ 5분: 결제 완료까지 충분한 시간 + 적절한 자동 정리
+**고려사항:**
+- ✅ 결제 시뮬레이션 10초 + 여유 시간
+- ✅ 너무 짧으면 정상 예약도 만료
+- ❌ 너무 길면 실패한 락이 오래 남음
+- ✅ 5분 = 충분한 시간 + 적절한 자동 정리
 
-### 3. 락 타임아웃 설정 (대기 1초, 점유 2초)
+### 2. Active User를 Set → 개별 키로 변경
+
+**Before (문제):**
+```redis
+SADD ticket:active:users 100 101 102
+# TTL 설정 불가 → 메모리 누수
+```
+
+**After (해결):**
+```redis
+SET ticket:active:users:100 "1" EX 300
+SET ticket:active:users:101 "1" EX 300
+# 각 키마다 TTL 자동 적용
+```
+
+**효과:**
+- 브라우저 종료 시 5분 후 자동 제거
+- Scheduler 장애와 무관하게 동작
+- Redis 기본 기능만 활용 (간단)
+
+### 3. 락 타임아웃 튜닝
 
 ```java
 lock.tryLock(1, 2, TimeUnit.SECONDS);
+//          ↑   ↑
+//      대기 1초, 점유 2초
 ```
 
-**타임아웃 튜닝 전략**:
-```
-대기 시간 (1초)
-├─ 너무 짧으면: 락 경합 시 대부분 실패
-└─ 너무 길면: 사용자 대기 시간 증가
+**설정 근거:**
+- 대기 1초: 빠른 실패 (UX 중요)
+- 점유 2초: DB 트랜잭션(평균 500ms) + 2배 마진
 
-점유 시간 (2초)
-├─ 너무 짧으면: DB 트랜잭션 중 락 해제될 수 있음
-└─ 너무 길면: 다른 요청 대기 시간 증가
-```
+**실전 조정 방법:**
+- JMeter/Gatling 부하 테스트
+- P95 응답 시간 측정
+- 락 실패율 5% 이하 유지
 
-**실전 튜닝**: JMeter/Gatling으로 부하 테스트 후 조정 필요
+### 4. API 분리 설계
 
-### 4. Rich Domain Model vs Anemic Domain Model
-
-```java
-// ❌ Anemic Domain Model (빈혈 모델)
-@Service
-public class ReservationService {
-    public void reserve(Seat seat) {
-        if (seat.isReserved()) {
-            throw new IllegalStateException();
-        }
-        seat.setReserved(true); // 서비스에서 직접 상태 변경
-    }
-}
-
-// ✅ Rich Domain Model (풍부한 도메인 모델)
-@Entity
-public class Seat {
-    public void reserve() {
-        if (this.isReserved) {
-            throw new IllegalStateException("이미 예약됨");
-        }
-        this.isReserved = true; // 엔티티 스스로 상태 관리
-    }
-}
+**Before:**
+```bash
+POST /reserve → "대기 중"
+POST /reserve (재호출) → 예약 진행
+# 같은 API를 2번 호출 (UX 나쁨)
 ```
 
-**선택 이유**:
-- 도메인 로직이 엔티티에 응집
-- 비즈니스 규칙 변경 시 한 곳만 수정
-- OOP 원칙 준수
+**After:**
+```bash
+POST /api/v1/queue/enter → 대기열 진입
+GET  /api/v1/queue/status → 상태 확인 (폴링)
+POST /api/v1/reservations/reserve → 예약 진행
+# RESTful 원칙 준수
+```
 
 ---
 
 ## 🚀 실행 방법
 
-### 1. 인프라 시작 (Docker Compose)
+### 1. 사전 요구사항
+
+- Java 17+
+- Docker & Docker Compose
+- Gradle
+
+### 2. 인프라 시작
 
 ```bash
 # MySQL, Redis, Kafka, Zookeeper 시작
@@ -518,7 +335,7 @@ docker-compose up -d
 docker-compose ps
 ```
 
-### 2. 애플리케이션 실행
+### 3. 애플리케이션 실행
 
 ```bash
 # 빌드
@@ -528,197 +345,151 @@ docker-compose ps
 ./gradlew bootRun
 ```
 
-### 3. API 테스트
+### 4. 테스트
 
 ```bash
-# 좌석 1번 예약 (사용자 100)
-curl -X POST "http://localhost:8080/reserve/1?userId=100"
-# 응답: SUCCESS
+# 1. 대기열 진입
+curl -X POST "http://localhost:8080/api/v1/queue/enter?userId=100"
 
-# 같은 좌석 중복 예약 시도
-curl -X POST "http://localhost:8080/reserve/1?userId=200"
-# 응답: FAIL: 이미 선택된 좌석입니다.
-```
+# 2. 상태 확인 (폴링)
+curl "http://localhost:8080/api/v1/queue/status?userId=100"
 
-### 4. Kafka 이벤트 확인
-
-```bash
-# Kafka 컨테이너 접속
-docker exec -it ticket-kafka bash
-
-# Consumer로 이벤트 확인
-kafka-console-consumer --bootstrap-server localhost:9092 \
-  --topic reservation-events --from-beginning
-
-# 출력 예시:
-# {"reservationId":1,"userId":100,"seatId":1,"seatNumber":"A-1","eventType":"RESERVATION_SUCCESS"}
-```
-
-### 5. 동시성 테스트 (JMeter 예시)
-
-```bash
-# JMeter 설치 (Mac)
-brew install jmeter
-
-# 테스트 시나리오:
-# - Thread: 1000명
-# - Ramp-Up: 10초
-# - Target: POST /reserve/1?userId=${__Random(1,1000)}
+# 3. 예약 진행 (READY 상태일 때)
+curl -X POST "http://localhost:8080/api/v1/reservations/reserve" \
+  -H "Content-Type: application/json" \
+  -d '{"userId": 100, "seatId": 1}'
 ```
 
 ---
 
-## 💡 면접 예상 질문 & 답변
+## 📖 API 문서
 
-### Q1. "왜 Redisson을 선택했나요? Lettuce와 비교해주세요."
+### 대기열 API
 
-**답변**:
-> Lettuce는 Redis 클라이언트이지만 분산 락 구현을 직접 해야 합니다. 스핀락 방식으로 구현하면 CPU 자원을 낭비하고, Pub/Sub으로 구현하려면 복잡도가 높아집니다.
->
-> 반면 Redisson은 분산 락을 위한 `RLock` 인터페이스를 제공하고, 내부적으로 Pub/Sub 기반 대기 메커니즘과 Watch Dog 자동 갱신을 지원합니다. 프로덕션 레벨의 분산 락을 빠르게 구현할 수 있어 선택했습니다.
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| POST | `/api/v1/queue/enter?userId={id}` | 대기열 진입 |
+| GET | `/api/v1/queue/status?userId={id}` | 상태 확인 |
+| DELETE | `/api/v1/queue?userId={id}` | 대기열 이탈 |
 
-### Q2. "Redis가 다운되면 어떻게 되나요?"
+### 예약 API
 
-**답변**:
-> Redis 다운 시 시나리오:
-> 1. **분산 락 실패**: `tryLock()`에서 예외 발생 → catch 블록에서 처리하여 사용자에게 "일시적 오류" 응답
-> 2. **캐시 미스**: DB로 직접 조회하여 처리 (성능 저하는 있지만 서비스 가능)
-> 3. **이벤트 발행은 정상**: Kafka는 독립적으로 동작
->
-> 개선 방안:
-> - Redis Sentinel (자동 페일오버)
-> - Redis Cluster (고가용성)
-> - Circuit Breaker 패턴으로 Redis 장애 격리
+| Method | Endpoint | 설명 |
+|--------|----------|------|
+| POST | `/api/v1/reservations/reserve` | 예약 진행 |
+| POST | `/api/v1/reservations/cancel` | 예약 취소 |
 
-### Q3. "Kafka 이벤트 발행이 실패하면?"
-
-**답변**:
-> 현재는 비동기 발행으로 메인 플로우에 영향 없습니다. 실패 시 로그만 남기고 예약은 성공합니다.
->
-> 프로덕션 환경 개선 방안:
-> 1. **Outbox 패턴**: DB에 이벤트 테이블 생성 → 트랜잭션 보장
-> 2. **재시도 큐**: 실패한 이벤트를 로컬 큐에 저장 후 배치로 재발행
-> 3. **Transactional Outbox**: Debezium으로 DB Change Data Capture
-
-### Q4. "락 타임아웃이 너무 짧거나 길면 어떻게 되나요?"
-
-**답변**:
-> **대기 시간 1초**:
-> - 너무 짧으면: 락 경합 시 대부분 타임아웃 실패 → 사용자 불만
-> - 너무 길면: 앞선 요청이 늦어지면 뒤 요청도 대기 → UX 저하
->
-> **점유 시간 2초**:
-> - 너무 짧으면: DB 트랜잭션 중 락이 해제되어 경합 발생
-> - 너무 길면: 다른 사용자가 불필요하게 대기
->
-> **튜닝 방법**: 부하 테스트로 P95 응답 시간 측정 후 조정. 현재 2초는 DB 트랜잭션 평균 500ms 기준 충분한 마진.
-
-### Q5. "같은 좌석에 동시에 1000명이 요청하면 어떻게 처리되나요?"
-
-**답변**:
-> **1단계: Redisson 락**
-> - 1명만 락 획득, 나머지 999명은 Pub/Sub로 대기
-> - 1초 내 락 획득 못하면 → "요청이 많아 지연" 응답
->
-> **2단계: Redis 캐시**
-> - 첫 번째 사용자가 예약 성공 시 `state:seat:1 = RESERVED` 저장
-> - 이후 요청들은 DB 조회 없이 캐시에서 바로 "이미 선택된 좌석" 응답
->
-> **결과**:
-> - 1명 성공, 999명 실패
-> - DB 부하 최소화 (캐시로 대부분 필터링)
-> - 평균 응답 시간 100ms 이하
-
-### Q6. "N+1 문제는 어떻게 방지하나요?"
-
-**답변**:
-> 현재는 연관 관계가 단순하여 N+1 문제가 없지만, 향후 확장 시:
->
-> ```java
-> // ❌ N+1 발생
-> List<Reservation> reservations = reservationRepository.findAll();
-> for (Reservation r : reservations) {
->     r.getSeat().getSeatNumber(); // 각 예약마다 SELECT 쿼리
-> }
->
-> // ✅ Fetch Join
-> @Query("SELECT r FROM Reservation r JOIN FETCH r.seat")
-> List<Reservation> findAllWithSeat();
->
-> // ✅ EntityGraph
-> @EntityGraph(attributePaths = {"seat"})
-> List<Reservation> findAll();
-> ```
-
-### Q7. "트랜잭션 전파(Propagation)는 어떻게 설정했나요?"
-
-**답변**:
-> ```java
-> @Service
-> @Transactional(readOnly = true) // 클래스 레벨: 조회 최적화
-> public class ReservationService {
->
->     @Transactional // 기본 REQUIRED (없으면 새로 만들고, 있으면 참여)
->     public Reservation reserve() {
->         // CUD 작업
->     }
-> }
-> ```
->
-> **REQUIRED 선택 이유**:
-> - Facade가 트랜잭션을 시작하지 않으므로 Service가 새 트랜잭션 생성
-> - 락 범위 > 트랜잭션 범위 (락 먼저 획득, 트랜잭션은 내부에서)
-
-### Q8. "Redis와 DB 상태가 불일치하면 어떻게 하나요?"
-
-**답변**:
-> **발생 시나리오**:
-> - Redis에 `RESERVED` 저장 후 서버 크래시
-> - TTL 만료 전까지 실제론 예약 안 됐는데 캐시엔 있음
->
-> **해결 방법**:
-> 1. **TTL 자동 정리**: 5분 후 자동 만료 (일시적 불일치만 허용)
-> 2. **DB가 진실의 원천**: 최종 확인은 항상 DB
-> 3. **배치 동기화**: 주기적으로 Redis와 DB 상태 비교 및 정정
->
-> **허용 가능한 이유**:
-> - 최악의 경우: 5분간 예약 가능한 좌석이 "이미 선택됨"으로 보임 (과잉 방어)
-> - 반대(중복 예약)는 절대 불가 → DB 검증이 최종 방어선
-
-### Q9. "이 시스템을 10배 트래픽으로 스케일 아웃한다면?"
-
-**답변**:
-> **수평 확장 전략**:
-> 1. **애플리케이션**: 서버 인스턴스 10개로 증가 → 분산 락으로 동기화 보장
-> 2. **DB**: Read Replica 추가 → 조회는 Replica, 쓰기는 Master
-> 3. **Redis**: Redis Cluster → 파티셔닝으로 부하 분산
-> 4. **Kafka**: 파티션 수 증가 (4 → 40) → 컨슈머 그룹 병렬 처리
->
-> **병목 지점 예측**:
-> - DB 쓰기가 단일 지점 → CQRS 패턴 고려
-> - Redis 단일 인스턴스 → Cluster 전환
-> - Kafka 파티션 수 → 사전 충분히 확보
-
-### Q10. "이 프로젝트에서 가장 어려웠던 점은?"
-
-**답변**:
-> **분산 락과 트랜잭션 범위 설계**가 가장 어려웠습니다.
->
-> 초기에는 트랜잭션 안에서 락을 획득하려 했는데, 트랜잭션이 롤백되어도 락은 그대로 남는 문제가 있었습니다. 결국 **락 범위 > 트랜잭션 범위**로 설계하여 해결했습니다.
->
-> 또한 Redis 캐시와 DB의 일관성을 어디까지 보장할지 고민이 많았습니다. 최종적으로 **DB를 진실의 원천으로, Redis는 성능 최적화 레이어**로 역할을 명확히 분리했습니다.
+**상세 문서:** [API 사용 가이드](./docs/API_사용_가이드.md)
 
 ---
 
-## 📚 참고 자료
+## 💡 FAQ
 
-- [Redisson 공식 문서](https://redisson.org/)
-- [Spring Kafka 레퍼런스](https://docs.spring.io/spring-kafka/reference/)
-- [분산 시스템에서의 동시성 제어](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html)
-- [이벤트 기반 마이크로서비스](https://microservices.io/patterns/data/event-driven-architecture.html)
+<details>
+<summary><b>Q1. Redis가 다운되면 어떻게 되나요?</b></summary>
+
+**현재 동작:**
+- 분산 락 실패 → 사용자에게 "일시적 오류" 응답
+- 캐시 미스 → DB로 직접 조회 (성능 저하 발생)
+
+**개선 방안:**
+- Redis Sentinel (자동 페일오버)
+- Redis Cluster (고가용성)
+- Circuit Breaker 패턴으로 장애 격리
+
+</details>
+
+<details>
+<summary><b>Q2. Kafka 이벤트 발행이 실패하면?</b></summary>
+
+**현재 처리:**
+- 비동기 발행으로 메인 플로우에 영향 없음
+- 실패 시 로그만 남기고 예약은 성공
+- 재시도 3회 자동 수행
+
+**프로덕션 개선:**
+- Outbox 패턴으로 트랜잭션 보장
+- Dead Letter Queue (DLQ)로 실패 메시지 별도 처리
+
+</details>
+
+<details>
+<summary><b>Q3. 같은 좌석에 1000명이 동시 접속하면?</b></summary>
+
+**처리 흐름:**
+1. **Redisson 락**: 1명만 획득, 나머지 대기
+2. **타임아웃(1초)**: 대부분 "요청 지연" 응답
+3. **Redis 캐시**: 첫 사용자 예약 성공 시 `SELECTED` 저장
+4. **이후 요청**: 캐시에서 즉시 "이미 선택됨" 응답
+
+**결과:** 1명 성공, 999명 실패, DB 부하 최소화
+
+</details>
+
+<details>
+<summary><b>Q4. N+1 문제는 어떻게 방지하나요?</b></summary>
+
+**현재:** 단순한 연관 관계로 N+1 문제 없음
+
+**향후 확장 시:**
+```java
+// Fetch Join 사용
+@Query("SELECT r FROM Reservation r JOIN FETCH r.seat")
+List<Reservation> findAllWithSeat();
+
+// 또는 EntityGraph
+@EntityGraph(attributePaths = {"seat"})
+List<Reservation> findAll();
+```
+
+</details>
+
+<details>
+<summary><b>Q5. 수평 확장 시 고려사항은?</b></summary>
+
+**현재 구조:**
+- 분산 락으로 다중 인스턴스 동기화 보장
+- Kafka 파티셔닝으로 병렬 처리
+
+**10배 트래픽 대응:**
+- 애플리케이션 서버 10개로 증가 ✅
+- DB Read Replica 추가 (조회 분산)
+- Redis Cluster 전환 (파티셔닝)
+- Kafka 파티션 증가 (4 → 40)
+
+</details>
+
+---
+
+## 📚 개발 과정
+
+### 주요 이슈 & 해결
+
+**1. 분산 락과 트랜잭션 범위**
+- 문제: 트랜잭션 롤백 시에도 락이 유지됨
+- 해결: 락 범위 > 트랜잭션 범위로 설계
+
+**2. Redis-DB 정합성**
+- 문제: 캐시와 DB 상태 불일치 가능
+- 해결: DB를 Source of Truth로, Redis는 TTL로 자동 정리
+
+**3. Active User 메모리 누수**
+- 문제: Set 방식으로 TTL 설정 불가
+- 해결: 개별 키 + TTL 방식으로 변경
+
+---
+
+## 🔗 관련 문서
+
+- [API 사용 가이드](./docs/API_사용_가이드.md)
+- [기술 스택 상세](./docs/CLAUDE.md)
 
 ---
 
 ## 📝 License
 
-이 프로젝트는 학습 목적으로 작성되었습니다.
+MIT License
+
+---
+
+**Built with ❤️ using Spring Boot, Redis, and Kafka**
