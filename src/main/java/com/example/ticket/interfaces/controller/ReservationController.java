@@ -20,20 +20,28 @@ public class ReservationController {
     private final ReservationFacade reservationFacade;
     private final ReservationService reservationService;
 
-    // 1. 예약하기: @RequestBody를 통해 DTO로 데이터를 받습니다.
+    /**
+     * 예약하기 (Active User만 호출 가능)
+     * POST /api/v1/reservations/reserve
+     *
+     * 사전 조건: /api/v1/queue/enter를 통해 대기열 진입 필수
+     */
     @PostMapping("/reserve")
     public ResponseEntity<ReservationResponse> reserve(@RequestBody ReservationRequest request) {
-        String result = reservationFacade.reserve(request.getSeatId(), request.getUserId());
+        try {
+            String result = reservationFacade.reserve(request.getSeatId(), request.getUserId());
 
-        // 결과 문자열에 따라 적절한 DTO 응답 생성
-        if (result.startsWith("SUCCESS")) {
-            return ResponseEntity.ok(ReservationResponse.ok(result));
-        } else if (result.contains("대기")) {
-            // 현재 순번 정보를 포함해 응답 (Facade 로직 개선에 따라 Rank 추출 가능)
-            return ResponseEntity.ok(ReservationResponse.waiting(null));
-        } else {
-            // 실패 시 409 Conflict 또는 400 Bad Request
-            return ResponseEntity.status(HttpStatus.CONFLICT).body(ReservationResponse.fail(result));
+            // 결과 문자열에 따라 적절한 DTO 응답 생성
+            if (result.startsWith("SUCCESS")) {
+                return ResponseEntity.ok(ReservationResponse.ok(result));
+            } else {
+                // 실패 시 409 Conflict
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(ReservationResponse.fail(result));
+            }
+        } catch (IllegalStateException e) {
+            // 대기열 미진입 시 403 Forbidden
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(ReservationResponse.fail(e.getMessage()));
         }
     }
 
