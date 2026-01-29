@@ -34,7 +34,7 @@ public class WaitingQueueService {
     // Active User로 등록 (TTL 5분)
     public void addActiveUser(Long userId) {
         String key = ACTIVE_KEY_PREFIX + userId;
-        redisTemplate.opsForValue().set(key, "1", ACTIVE_USER_TTL_MINUTES, TimeUnit.MINUTES);
+        redisTemplate.opsForValue().set(key, "activated", ACTIVE_USER_TTL_MINUTES, TimeUnit.MINUTES);
         log.debug("✅ Active User 추가: userId={}, TTL={}분", userId, ACTIVE_USER_TTL_MINUTES);
     }
 
