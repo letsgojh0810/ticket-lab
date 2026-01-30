@@ -65,6 +65,8 @@
 ### 시스템 아키텍처
 <img src="static/img/Arch.png" alt="시스템 아키텍처">
 
+> Click Image 
+
 #### 1. **Facade 패턴**
 복잡한 인프라 계층(Redis, Redisson, Kafka)을 Application Layer에서 추상화하여 도메인 로직과 분리
 
