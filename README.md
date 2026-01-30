@@ -10,19 +10,15 @@
 ---
 
 ## 📋 목차
-
-* [🎯 프로젝트 개요](https://www.google.com/search?q=%23-%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8-%EA%B0%9C%EC%9A%94)
-* [🛠 핵심 기술 스택](https://www.google.com/search?q=%23-%ED%95%B5%EC%8B%AC-%EA%B8%B0%EC%88%A0-%EC%8A%A4%ED%83%9D)
-* [🏗 아키텍처](https://www.google.com/search?q=%23-%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98)
-* [🔒 동시성 및 멱등성 제어 전략](https://www.google.com/search?q=%23-%EB%8F%99%EC%8B%9C%EC%84%B1-%EB%B0%8F-%EB%A9%B1%EB%93%B1%EC%84%B1-%EC%A0%9C%EC%96%B4-%EC%A0%84%EB%9E%B5)
-* [🎫 대기열 시스템](https://www.google.com/search?q=%23-%EB%8C%80%EA%B8%B0%EC%97%B4-%EC%8B%9C%EC%8A%A4%ED%85%9C)
-* [📨 이벤트 기반 아키텍처](https://www.google.com/search?q=%23-%EC%9D%B4%EB%B2%A4%ED%8A%B8-%EA%B8%B0%EB%B0%98-%EC%95%84%ED%82%A4%ED%85%8D%EC%B2%98)
-* [📖 API 문서](https://www.google.com/search?q=%23-api-%EB%AC%B8%EC%84%9C)
-* [🧪 부하 테스트](https://www.google.com/search?q=%23-%EB%B6%80%ED%95%98-%ED%85%8C%EC%8A%A4%ED%8A%B8)
-* [🤔 고민사항](https://www.google.com/search?q=%23-%EA%B3%A0%EB%AF%BC%EC%82%AC%ED%95%AD)
-
----
-
+- [프로젝트 개요](#-프로젝트-개요)
+- [핵심 기술 스택](#-핵심-기술-스택)
+- [아키텍처](#-아키텍처)
+- [동시성 제어 전략](#-동시성-제어-전략)
+- [대기열 시스템](#-대기열-시스템)
+- [이벤트 기반 아키텍처](#-이벤트-기반-아키텍처)
+- [고민사항](#-고민사항)
+- [API 문서](#-api-문서)
+- [FAQ](#-faq)
 
 ---
 
