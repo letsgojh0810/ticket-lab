@@ -164,7 +164,9 @@ public void consume(ReservationEvent event) {
 
 ## 🤔 고민사항
 
-### 1. Redis TTL 5분 설정 근거
+### 1. Redis TTL 시간 설정 근거?
+
+- 결제시간을 얼만큼 줘야할까?
 
 ```java
 redisTemplate.opsForValue().set(key, "SELECTED", 5, TimeUnit.MINUTES);
@@ -178,13 +180,13 @@ redisTemplate.opsForValue().set(key, "SELECTED", 5, TimeUnit.MINUTES);
 
 ### 2. Active User를 Set → 개별 키로 변경
 
-**Before (문제):**
+**AS-IS:**
 ```redis
 SADD ticket:active:users 100 101 102
 # TTL 설정 불가 → 메모리 누수
 ```
 
-**After (해결):**
+**TO-BE**
 ```redis
 SET ticket:active:users:100 "1" EX 300
 SET ticket:active:users:101 "1" EX 300
@@ -195,6 +197,9 @@ SET ticket:active:users:101 "1" EX 300
 - 브라우저 종료 시 5분 후 자동 제거
 - Scheduler 장애와 무관하게 동작
 - Redis 기본 기능만 활용 (간단)
+
+**다만, 키가 너무 많이 생겼을 때 문제가 있을 수 있는지?**
+
 
 ### 3. 락 타임아웃 튜닝
 
@@ -209,27 +214,24 @@ lock.tryLock(1, 2, TimeUnit.SECONDS);
 - 점유 2초: DB 트랜잭션(평균 500ms) + 2배 마진
 
 **실전 조정 방법:**
-- JMeter/Gatling 부하 테스트
+- JMeter 부하 테스트
 - P95 응답 시간 측정
 - 락 실패율 5% 이하 유지
 
-### 4. API 분리 설계
 
-**Before:**
-```bash
-POST /reserve → "대기 중"
-POST /reserve (재호출) → 예약 진행
-# 같은 API를 2번 호출 (UX 나쁨)
-```
+### 4. 휘발성인 Redis는 어떤식으로 관리해야할까?
+1. DB에 직접 다 저장하기에는 데이터가 너무 많이 생길 것 같음
+2. 휘발되어도 크게 문제가 되지 않는다?
+   
+### 5. 공연/스포츠 마다 미리 트래픽을 예상하는 방법?
 
-**After:**
-```bash
-POST /api/v1/queue/enter → 대기열 진입
-GET  /api/v1/queue/status → 상태 확인 (폴링)
-POST /api/v1/reservations/reserve → 예약 진행
-# RESTful 원칙 준수
-```
+- 과거 데이터 분석
+- 예상이 힘들 때는?
 
+### 6. 어떤일이 있어도 Redis만큼은 죽어선 안된다!
+- 고가용성 관련 대비해야할 것들
+- 페일오버 전략(레플리케이션, 서킷브레이커 등)
+  
 ---
 
 ## 📖 API 문서
