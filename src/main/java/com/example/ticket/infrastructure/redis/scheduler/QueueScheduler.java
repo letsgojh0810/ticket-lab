@@ -16,7 +16,7 @@ public class QueueScheduler {
     private final RedisTemplate<String, String> redisTemplate;
     private final WaitingQueueService waitingQueueService;
     private static final String QUEUE_KEY = "ticket:waiting:queue";
-    private static final int MAX_ACTIVE_USERS = 100; // 최대 동시 처리 가능 인원
+    private static final int MAX_ACTIVE_USERS = 200; // 최대 동시 처리 가능 인원
 
     @Scheduled(fixedDelay = 1000) // 1초마다 실행
     public void moveWaitingToActive() {
