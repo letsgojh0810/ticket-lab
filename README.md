@@ -15,37 +15,38 @@
 - [대기열 시스템](#-대기열-시스템)
 - [이벤트 기반 아키텍처](#-이벤트-기반-아키텍처)
 - [기술적 의사결정](#-기술적-의사결정)
-- [실행 방법](#-실행-방법)
-- [API 문서](#-api-문서)
 - [FAQ](#-faq)
 
 ---
 
 ## 🎯 프로젝트 개요
 
-**"선착순 100명 한정! 콘서트 티켓 오픈"**
+수만 명이 동시에 접속하는 티켓 예매 시스템에서 정확히 100장만 판매하고 빠른 응답 속도를 유지하며 안정적으로 서비스하는 것을 목표로 했습니다.
+해당 프로젝트의 가장 중요한 목표는 3가지로 정했습니다
 
-수만 명이 동시에 접속하는 티켓 예매 시스템에서 정확히 100장만 판매하고, 빠른 응답 속도를 유지하며, 안정적으로 서비스하는 것이 목표였습니다.
+1. 데이터 정합성(트랜잭션)
+2. 멱등성
+3. 동시성 제어
 
-### 해결한 핵심 과제
+### 핵심 과제
 
-| 문제 | 해결 방법 | 성과 |
-|------|----------|------|
+| 문제 | 해결 방법                    | 성과 |
+|------|--------------------------|------|
 | **동시성 이슈** | Redisson 분산 락 + Redis 캐싱 | 중복 예약 0건 |
-| **DB 과부하** | 3단 방어선 (락 → 캐시 → DB) | DB 부하 90% 감소 |
-| **서버 확장성** | 분산 락으로 다중 인스턴스 동기화 | 수평 확장 가능 |
-| **트래픽 제어** | Redis 대기열 시스템 | Active User 100명 제한 |
-| **응답 속도** | 비동기 이벤트 처리 (Kafka) | 평균 응답 시간 < 200ms |
+| **DB 과부하** | 락 → 캐시 → DB              | DB 부하 90% 감소 |
+| **서버 확장성** | 분산 락으로 다중 인스턴스 동기화       | 수평 확장 가능 |
+| **트래픽 제어** | ZSet 대기열| Active User 100명 제한 |
+| **응답 속도** | 비동기 이벤트 처리 (Kafka)       | 평균 응답 시간 < 200ms |
 
 ---
 
 ## 🛠 핵심 기술 스택
 
 ### Backend
-- **Java 17** - LTS 버전, 최신 문법 지원
-- **Spring Boot 3.3.5** - 애플리케이션 프레임워크
-- **Spring Data JPA** - 데이터 접근 계층
-- **MySQL 8.0** - 영구 데이터 저장소
+- **Java 17**
+- **Spring Boot 3.3.5**
+- **Spring Data JPA**
+- **MySQL 8.0**
 
 ### Infrastructure
 - **Redis + Redisson** - 분산 락, 캐싱, 대기열
@@ -54,48 +55,15 @@
 
 ### Monitoring
 - **Spring Actuator** - 헬스 체크, 메트릭
-- **Prometheus** - 메트릭 수집 (준비 중)
+- **Prometheus** - 메트릭 수집
+- **Grafana** - 시각화
 
 ---
 
 ## 🏗 아키텍처
 
-### 레이어드 아키텍처
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                  Presentation Layer                     │
-│           (QueueController, ReservationController)      │
-│                  - REST API 엔드포인트                   │
-└────────────────────┬────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────┐
-│                 Application Layer                       │
-│               (ReservationFacade)                       │
-│  - 대기열 진입 제어                                       │
-│  - 분산 락 획득/해제                                      │
-│  - Redis 선점 상태 관리                                   │
-│  - Kafka 이벤트 발행                                      │
-│  - 트랜잭션 조율                                          │
-└────────────────────┬────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────┐
-│                  Domain Layer                           │
-│    (ReservationService, Seat Entity, PaymentService)    │
-│  - 비즈니스 로직 (Rich Domain Model)                     │
-│  - 도메인 규칙 검증                                       │
-│  - 상태 변경 로직                                         │
-└────────────────────┬────────────────────────────────────┘
-                     │
-┌────────────────────▼────────────────────────────────────┐
-│               Infrastructure Layer                      │
-│  - JPA Repository (DB 접근)                             │
-│  - Kafka Producer/Consumer (메시지 발행/소비)            │
-│  - Redis Client (캐시/락/대기열)                         │
-└─────────────────────────────────────────────────────────┘
-```
-
-### 주요 설계 패턴
+### 시스템 아키텍처
+<img src="static/img/Arch.png" alt="시스템 아키텍처" width="70%">
 
 #### 1. **Facade 패턴**
 복잡한 인프라 계층(Redis, Redisson, Kafka)을 Application Layer에서 추상화하여 도메인 로직과 분리
@@ -110,71 +78,17 @@ Kafka를 통한 비동기 이벤트 처리로 메인 플로우와 부가 작업 
 
 ## 🔒 동시성 제어 전략
 
-### 3단 방어선 (Three-Tier Defense)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  1️⃣ Redisson 분산 락 (Multi-Instance Synchronization)  │
-│     - 여러 서버 간 동기화                                 │
-│     - Pub/Sub 기반 대기 (스핀락 X)                       │
-│     - 타임아웃: 대기 1초, 점유 2초                        │
-└─────────────────────────────────────────────────────────┘
-                      ↓ 락 획득 성공
-┌─────────────────────────────────────────────────────────┐
-│  2️⃣ Redis 선점 상태 캐싱 (Performance Layer)            │
-│     - 이미 선점된 좌석 즉시 필터링                        │
-│     - DB 조회 없이 1차 검증 (90% 부하 감소)               │
-│     - TTL 5분 자동 만료                                  │
-└─────────────────────────────────────────────────────────┘
-                      ↓ 캐시 미스
-┌─────────────────────────────────────────────────────────┐
-│  3️⃣ DB 트랜잭션 + 도메인 검증 (Source of Truth)         │
-│     - 최종 진실의 원천                                    │
-│     - seat.reserve() 내부 상태 검증                      │
-│     - 트랜잭션으로 원자성 보장                            │
-└─────────────────────────────────────────────────────────┘
-```
 
-### 기술 선택: Redisson vs Lettuce
-
-**Redisson 선택 이유:**
-- ✅ Pub/Sub 기반 대기 (Lettuce의 스핀락 대비 CPU 효율적)
-- ✅ 자동 락 갱신 (Watch Dog 메커니즘)
-- ✅ RLock 인터페이스로 간편한 분산 락 구현
-- ✅ 공정성(Fairness) 옵션 지원
+**Redisson**
+- Pub/Sub 기반 대기
+- RLock 인터페이스로 간편한 분산 락 구현
+- 공정성 옵션 지원
 
 ---
 
 ## 🎫 대기열 시스템
 
-### 아키텍처
-
-```
-Redis 기반 대기열 + Active User 관리 (TTL 자동 만료)
-
-┌─────────────────────────────────────────────────────────┐
-│  WAITING QUEUE (SortedSet)                              │
-│  ticket:waiting:queue                                   │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ userId: 100 (score: 1706518800000)             │     │
-│  │ userId: 101 (score: 1706518801000)             │     │
-│  │ userId: 102 (score: 1706518802000)             │     │
-│  │ ...                                            │     │
-│  │ 10,000명 대기 중                                │     │
-│  └────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────┘
-                      ↓ Scheduler (1초마다 10명씩 이동)
-┌─────────────────────────────────────────────────────────┐
-│  ACTIVE USERS (Individual Keys with TTL)                │
-│  ticket:active:users:{userId}                           │
-│  ┌────────────────────────────────────────────────┐     │
-│  │ ticket:active:users:100 = "1" (TTL 5분)        │     │
-│  │ ticket:active:users:101 = "1" (TTL 5분)        │     │
-│  │ ...                                            │     │
-│  │ 최대 100명 (동시 처리 한도)                     │     │
-│  └────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────┘
-```
 
 ### 주요 기능
 
@@ -199,13 +113,12 @@ Redis 기반 대기열 + Active User 관리 (TTL 자동 만료)
 ### 문제: 동기 처리의 한계
 
 ```java
-// ❌ Before: 동기 처리 (안티패턴)
 public String reserve() {
     // ... 예약 로직 ...
-    emailService.sendConfirmation();  // 3초
-    smsService.sendNotification();     // 2초
-    statisticsService.update();        // 1초
-    return "SUCCESS"; // 총 6초 후 응답!
+    emailService.sendConfirmation();
+    smsService.sendNotification();
+    statisticsService.update();
+    return "SUCCESS";
 }
 ```
 
@@ -247,7 +160,7 @@ public void consume(ReservationEvent event) {
 
 ---
 
-## 🤔 기술적 의사결정
+## 🤔 고민사항
 
 ### 1. Redis TTL 5분 설정 근거
 
@@ -256,10 +169,10 @@ redisTemplate.opsForValue().set(key, "SELECTED", 5, TimeUnit.MINUTES);
 ```
 
 **고려사항:**
-- ✅ 결제 시뮬레이션 10초 + 여유 시간
-- ✅ 너무 짧으면 정상 예약도 만료
-- ❌ 너무 길면 실패한 락이 오래 남음
-- ✅ 5분 = 충분한 시간 + 적절한 자동 정리
+- 결제 시뮬레이션 10초 + 여유 시간
+- 너무 짧으면 정상 예약도 만료
+- 너무 길면 실패한 락이 오래 남음
+- 5분 = 충분한 시간 + 적절한 자동 정리
 
 ### 2. Active User를 Set → 개별 키로 변경
 
@@ -313,51 +226,6 @@ POST /api/v1/queue/enter → 대기열 진입
 GET  /api/v1/queue/status → 상태 확인 (폴링)
 POST /api/v1/reservations/reserve → 예약 진행
 # RESTful 원칙 준수
-```
-
----
-
-## 🚀 실행 방법
-
-### 1. 사전 요구사항
-
-- Java 17+
-- Docker & Docker Compose
-- Gradle
-
-### 2. 인프라 시작
-
-```bash
-# MySQL, Redis, Kafka, Zookeeper 시작
-docker-compose up -d
-
-# 정상 실행 확인
-docker-compose ps
-```
-
-### 3. 애플리케이션 실행
-
-```bash
-# 빌드
-./gradlew build
-
-# 실행
-./gradlew bootRun
-```
-
-### 4. 테스트
-
-```bash
-# 1. 대기열 진입
-curl -X POST "http://localhost:8080/api/v1/queue/enter?userId=100"
-
-# 2. 상태 확인 (폴링)
-curl "http://localhost:8080/api/v1/queue/status?userId=100"
-
-# 3. 예약 진행 (READY 상태일 때)
-curl -X POST "http://localhost:8080/api/v1/reservations/reserve" \
-  -H "Content-Type: application/json" \
-  -d '{"userId": 100, "seatId": 1}'
 ```
 
 ---
@@ -478,18 +346,3 @@ List<Reservation> findAll();
 - 해결: 개별 키 + TTL 방식으로 변경
 
 ---
-
-## 🔗 관련 문서
-
-- [API 사용 가이드](./docs/API_사용_가이드.md)
-- [기술 스택 상세](./docs/CLAUDE.md)
-
----
-
-## 📝 License
-
-MIT License
-
----
-
-**Built with ❤️ using Spring Boot, Redis, and Kafka**
