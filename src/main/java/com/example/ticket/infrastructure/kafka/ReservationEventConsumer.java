@@ -18,7 +18,7 @@ public class ReservationEventConsumer {
     private final ObjectMapper objectMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule()); // 날짜 파싱을 위해 필요
 
-    @KafkaListener(topics = "reservation-events", groupId = "ticket-reservation-group")
+    @KafkaListener(topics = "reservation-events", groupId = "notification-kakao")
     public void consume(@Payload String message, Acknowledgment acknowledgment) {
         try {
             // 1. JSON 문자열을 다시 자바 객체(ReservationEvent)로 변환! (역직렬화)

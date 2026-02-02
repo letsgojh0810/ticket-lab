@@ -18,7 +18,7 @@ public class NotificationConsumer {
     // private final JavaMailSender mailSender; // SMTP 비활성화 - 로그로 대체
     private final ObjectMapper objectMapper; // JSON 변환기
 
-    @KafkaListener(topics = "reservation-events", groupId = "ticket-reservation-group")
+    @KafkaListener(topics = "reservation-events", groupId = "notification-email")
     public void consume(String message, Acknowledgment acknowledgment) {
         try {
             log.info("📥 카프카 메시지 수신: {}", message);
