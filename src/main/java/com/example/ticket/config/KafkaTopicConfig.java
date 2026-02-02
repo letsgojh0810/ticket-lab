@@ -41,17 +41,4 @@ public class KafkaTopicConfig {
                 .build();
     }
 
-    /**
-     * 예약 성공 토픽 (레거시 호환용)
-     *
-     * 용도: 기존 시스템 호환
-     * TODO: reservation-events로 통합 후 제거 예정
-     */
-    @Bean
-    public NewTopic reservationSuccessTopic() {
-        return TopicBuilder.name("reservation-success")
-                .partitions(1)
-                .replicas(1)
-                .build();
-    }
 }
