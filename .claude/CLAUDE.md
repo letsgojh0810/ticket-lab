@@ -94,10 +94,16 @@ config/             # Spring configuration beans (Redis, Redisson, Kafka)
 
 **3. Distributed Concurrency Control**
 - **Redisson Distributed Lock**: Prevents race conditions across instances (`lock:seat:{seatId}`)
-- **Redis Preemptive State**: First-level filter to reject already-reserved seats without DB hit (`state:seat:{seatId}`)
-- **TTL Strategy**: Redis state expires after 5 minutes to prevent stale locks
+- **Redis Cache (optional)**: `state:seat:{seatId}` is a best-effort cache — **DB is the source of truth**. Cache failures are swallowed; DB state is always re-read after lock acquisition
+- **TTL Strategy**: Redis state expires after 5 minutes to prevent stale data
 
-**4. Event-Driven Architecture (Kafka)**
+**4. Real-Time Seat Status (SSE + Redis Pub/Sub)**
+- `SeatStatusPublisher` publishes JSON messages to the `seat-status` Redis channel after every state change
+- `SeatStatusSubscriber` receives channel messages and broadcasts them to all connected SSE clients via `SseEmitterRegistry`
+- `SseEmitterRegistry` maintains a `ConcurrentHashMap` of active `SseEmitter` instances; emitters self-remove on completion/timeout/error
+- Clients subscribe at `GET /api/v1/sse/seats` (no auth required)
+
+**5. Event-Driven Architecture (Kafka)**
 - **Asynchronous Event Publishing**: Reservation success/failure events published to Kafka
 - **Topic**: `reservation-events`
 - **Partitioning Strategy**: Same seat goes to same partition (key = seatId)
@@ -112,16 +118,31 @@ config/             # Spring configuration beans (Redis, Redisson, Kafka)
   - Analytics and data warehousing
   - Audit logging
 
-### Critical Reservation Flow
+### Two-Phase Reservation Flow
 
-1. **Lock Acquisition**: Try to acquire Redisson lock (1s wait, 2s hold)
-2. **Redis Check**: Query `state:seat:{seatId}` for quick rejection if reserved
-3. **DB Transaction**: Call `ReservationService.reserve()` to persist seat + reservation
-4. **Update Cache**: Set Redis state to `RESERVED` with 5-minute TTL
-5. **Publish Event**: Send `RESERVATION_SUCCESS` event to Kafka (async)
-6. **Lock Release**: Always release lock in `finally` block
+**Phase 1 — Seat Hold (`ReservationFacade.reserve()`)**
+1. Queue check: reject if user is not active in `WaitingQueueService`
+2. Acquire Redisson lock (`lock:seat:{seatId}`, 1s wait / 2s hold)
+3. Re-read seat from DB; reject if `SELECTED` or `CONFIRMED`
+4. `ReservationService.hold()`: `Seat` → `SELECTED`, `Reservation` → `HELD`; returns `reservationId`
+5. Update Redis cache (best-effort, errors swallowed)
+6. Broadcast `SELECTED` via Redis Pub/Sub → SSE
+7. Release lock in `finally`
 
-This approach decouples reservation processing from side effects (notifications, analytics) and provides fast response times.
+**Phase 2 — Payment (`PaymentFacade.requestPayment()`)**
+1. Verify reservation is `HELD`
+2. Call external PG (WebClient, blocking `.block()`)
+3. Save `Payment` as `PENDING`; return `transactionKey`
+
+**Phase 3 — PG Callback (`PaymentFacade.handleCallback()`)**
+- **SUCCESS**: `Payment.success()`, `Reservation` → `CONFIRMED`, `Seat` → `CONFIRMED`, publish Kafka `RESERVATION_SUCCESS`, remove active queue user, broadcast `CONFIRMED` via SSE
+- **FAILURE**: `Payment.fail()`, `Reservation.cancel()`, `Seat` → `AVAILABLE`, delete Redis cache, publish Kafka `RESERVATION_FAILED`, broadcast `AVAILABLE` via SSE
+
+### Status Enums
+
+- `SeatStatus`: `AVAILABLE` → `SELECTED` → `CONFIRMED` (or back to `AVAILABLE` on failure)
+- `ReservationStatus`: `HELD` → `CONFIRMED` | `CANCELLED`
+- `PaymentStatus`: `PENDING` → `SUCCESS` | `FAILED`
 
 ### Domain Model Conventions
 
@@ -133,6 +154,19 @@ This approach decouples reservation processing from side effects (notifications,
 - Use domain methods for state transitions (not setters)
 - Throw domain exceptions (e.g., `IllegalStateException`) for business rule violations
 - Example: `seat.reserve()` instead of `seat.setReserved(true)`
+
+## Authentication
+
+JWT-based stateless auth with Spring Security:
+
+- `UserService.signup()` encodes password with `BCryptPasswordEncoder` and persists a `User` entity
+- `AuthController` issues a JWT on successful login via `JwtTokenProvider.generateAccessToken()`
+- `JwtAuthenticationFilter` validates Bearer tokens on every request and populates `SecurityContextHolder`
+- `PasswordEncoderConfig` is a separate `@Configuration` to avoid circular dependency between `SecurityConfig` and `UserService`
+
+**Public endpoints** (no JWT required): `/api/v1/auth/**`, `/api/v1/payments/callback`, `/api/v1/sse/**`, `/actuator/**`
+
+**CORS**: only `http://localhost:5173` (frontend dev server) is allowed
 
 ## Configuration Files
 
@@ -148,6 +182,10 @@ This approach decouples reservation processing from side effects (notifications,
 - Kafka + Zookeeper for messaging
 
 **RedissonConfig.java** - Configures Redisson client for distributed locking using single-server mode
+
+**RedisConfig.java** - Configures `RedisTemplate<String, String>` and `RedisMessageListenerContainer` for Pub/Sub (`SeatStatusSubscriber` listens on `seat-status` channel)
+
+**WebClientConfig.java** - Configures `pgWebClient` bean pointing to the external PG server (base URL from `payment.pg.base-url` property)
 
 **KafkaConfig.java** - Configures Kafka producer and consumer:
 - Producer: `acks=all` (all replicas acknowledge), 3 retries
@@ -207,27 +245,37 @@ This approach decouples reservation processing from side effects (notifications,
 
 ### Kafka Integration Points
 
-Event publishing happens at three points in `ReservationFacade`:
-1. Lock acquisition timeout → Publish `RESERVATION_FAILED`
-2. Redis state already reserved → Publish `RESERVATION_FAILED`
-3. Successful DB commit → Publish `RESERVATION_SUCCESS`
-4. Exception during reservation → Publish `RESERVATION_FAILED`
+Events are published from two facades:
+- `ReservationFacade`: lock timeout or exception → `RESERVATION_FAILED`
+- `PaymentFacade.handleCallback()`: payment success → `RESERVATION_SUCCESS`; payment failure → `RESERVATION_FAILED`
+- `ReservationService.cancel()`: cancellation → `RESERVATION_CANCELLED`
 
 ## API Endpoints
 
-**Queue (prerequisite before reserving)**
+**Auth (public)**
+- `POST /api/v1/auth/signup` — body: `{ email, password }`; returns 201 on success, 409 if email taken
+- `POST /api/v1/auth/login` — body: `{ email, password }`; returns `{ userId, accessToken }`, 401 on bad credentials
+
+**Queue** (JWT required)
 - `POST /api/v1/queue/enter?userId={userId}` — Enter waiting queue; returns `READY` if already active, else `WAITING` with rank
 - `GET /api/v1/queue/status?userId={userId}` — Check queue status and active user count
 - `DELETE /api/v1/queue?userId={userId}` — Leave queue and release active slot
 
-**Seats (read-only)**
-- `GET /api/v1/seats` — All seats with real-time status (DB metadata + Redis state)
+**Seats** (JWT required)
+- `GET /api/v1/seats` — All seats with real-time status (DB metadata + Redis cache)
 - `GET /api/v1/seats/{seatId}` — Single seat
 - `GET /api/v1/seats/available` — Only available seats
 
-**Reservations**
-- `POST /api/v1/reservations/reserve` — Reserve a seat; body: `{ seatId, userId }`. Returns 200 on success, 409 on conflict, 403 if not an active queue user
-- `POST /api/v1/reservations/cancel` — Cancel reservation; body: `{ seatId, userId }`
+**Reservations** (JWT required)
+- `POST /api/v1/reservations/reserve` — body: `{ seatId, userId }`; returns `reservationId`. 409 on conflict, 403 if not active queue user
+- `POST /api/v1/reservations/cancel` — body: `{ seatId, userId }`
+
+**Payments**
+- `POST /api/v1/payments/request` *(JWT required)* — body: `{ reservationId, cardType, cardNo, amount }`; returns `{ transactionKey }`
+- `POST /api/v1/payments/callback` *(public — PG server calls this)* — body: `{ transactionKey, status }`
+
+**SSE** (public)
+- `GET /api/v1/sse/seats` — Subscribe to real-time seat status stream (text/event-stream)
 
 ## Waiting Queue System
 

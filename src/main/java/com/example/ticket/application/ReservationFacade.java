@@ -35,6 +35,8 @@ public class ReservationFacade {
 
     /**
      * 좌석 선점 후 reservationId 반환 (결제는 PaymentFacade에서 별도 처리)
+     *
+     * DB가 상태의 원천입니다. Redis는 분산 락(Redisson)과 선택적 캐시 용도로만 사용합니다.
      */
     public Long reserve(Long seatId, Long userId) {
         Timer.Sample reservationSample = Timer.start();
@@ -46,13 +48,16 @@ public class ReservationFacade {
             throw new IllegalStateException("대기열 진입이 필요합니다. /api/v1/queue/enter를 먼저 호출하세요.");
         }
 
+        // [STEP 2] 좌석 존재 여부 사전 확인
+        seatRepository.findById(seatId)
+                .orElseThrow(() -> {
+                    metricsConfig.decrementActiveReservations();
+                    return new IllegalArgumentException("존재하지 않는 좌석입니다.");
+                });
+
         RLock lock = redissonClient.getLock(LOCK_KEY + seatId);
 
         try {
-            // [STEP 2] 좌석 기본 정보 조회
-            Seat seat = seatRepository.findById(seatId)
-                    .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 좌석입니다."));
-
             // [STEP 3] 분산 락 획득 (1초 대기, 2초 점유)
             Timer.Sample lockSample = Timer.start();
             if (!lock.tryLock(1, 2, TimeUnit.SECONDS)) {
@@ -65,21 +70,26 @@ public class ReservationFacade {
             lockSample.stop(metricsConfig.getLockAcquisitionTimer());
 
             try {
-                // [STEP 4] 이선좌 필터링 - 레디스 캐시 조회
-                String currentStatus = seatCacheService.getSeatStatus(seatId);
+                // [STEP 4] 락 획득 후 DB에서 최신 좌석 상태 확인 (DB가 원천)
+                Seat seat = seatRepository.findById(seatId)
+                        .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 좌석입니다."));
 
-                if (SeatStatus.SELECTED.name().equals(currentStatus)) {
+                if (seat.getStatus() == SeatStatus.SELECTED) {
                     throw new IllegalStateException("현재 다른 사용자가 결제 진행 중입니다.");
                 }
-                if (SeatStatus.CONFIRMED.name().equals(currentStatus)) {
+                if (seat.getStatus() == SeatStatus.CONFIRMED) {
                     throw new IllegalStateException("이미 판매가 완료된 좌석입니다.");
                 }
 
-                // [STEP 5] 레디스 임시 선점 (5분간 SELECTED 상태 유지)
-                seatCacheService.updateSeatStatus(seatId, SeatStatus.SELECTED.name(), 5);
-
-                // [STEP 6] DB에 HELD 상태 Reservation 저장
+                // [STEP 5] DB 상태 변경 (AVAILABLE → SELECTED) + Reservation HELD 저장
                 Reservation reservation = reservationService.hold(seatId, userId);
+
+                // [STEP 6] Redis 캐시 업데이트 (선택적 fast-check 용도; 실패해도 DB가 정합성 보장)
+                try {
+                    seatCacheService.updateSeatStatus(seatId, SeatStatus.SELECTED.name(), 5);
+                } catch (Exception cacheEx) {
+                    log.warn("Redis 캐시 업데이트 실패 (무시됨). seatId={}: {}", seatId, cacheEx.getMessage());
+                }
 
                 // [STEP 7] 좌석 선점 상태 브로드캐스트
                 seatStatusPublisher.publish(seatId, seat.getSeatNumber(), "SELECTED");
@@ -108,7 +118,6 @@ public class ReservationFacade {
             throw e;
         } catch (Exception e) {
             log.error("예약 과정 중 에러 발생: ", e);
-            seatCacheService.deleteSeatStatus(seatId);
             metricsConfig.getReservationFailedCounter().increment();
             metricsConfig.decrementActiveReservations();
             throw new IllegalStateException(e.getMessage());

@@ -1,15 +1,12 @@
 package com.example.ticket.domain.seat;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Entity
 @Getter
-@NoArgsConstructor // JPA용 기본 생성자
+@NoArgsConstructor
 public class Seat {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -17,24 +14,38 @@ public class Seat {
 
     private String seatNumber;
 
-    private boolean isReserved;
+    @Enumerated(EnumType.STRING)
+    private SeatStatus status = SeatStatus.AVAILABLE;
 
     public Seat(String seatNumber) {
         this.seatNumber = seatNumber;
-        this.isReserved = false;
+        this.status = SeatStatus.AVAILABLE;
     }
 
-    public void reserve() {
-        if (this.isReserved) {
-            throw new IllegalStateException("이미 예약된 좌석입니다.");
+    /**
+     * 좌석 선점: AVAILABLE → SELECTED
+     */
+    public void select() {
+        if (this.status != SeatStatus.AVAILABLE) {
+            throw new IllegalStateException("선점할 수 없는 좌석입니다. 현재 상태: " + this.status);
         }
-        this.isReserved = true;
+        this.status = SeatStatus.SELECTED;
     }
 
-    public void cancel() {
-        if (!this.isReserved) {
-            throw new IllegalStateException("이미 취소되었습니다");
+    /**
+     * 예약 확정: SELECTED → CONFIRMED
+     */
+    public void confirm() {
+        if (this.status != SeatStatus.SELECTED) {
+            throw new IllegalStateException("확정할 수 없는 좌석입니다. 현재 상태: " + this.status);
         }
-        this.isReserved = false;
+        this.status = SeatStatus.CONFIRMED;
+    }
+
+    /**
+     * 좌석 해제: 어떤 상태에서든 AVAILABLE로 복원
+     */
+    public void release() {
+        this.status = SeatStatus.AVAILABLE;
     }
 }

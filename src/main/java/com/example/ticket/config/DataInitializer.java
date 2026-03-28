@@ -14,7 +14,10 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        // 테스트를 위해 1번부터 100번 좌석까지 미리 생성
+        if (seatRepository.count() > 0) {
+            System.out.println("✅ [System] 좌석 데이터 이미 존재, 초기화 생략");
+            return;
+        }
         for (int i = 1; i <= 100; i++) {
             seatRepository.save(new Seat(i + "번 좌석"));
         }

@@ -57,12 +57,14 @@ class ReservationFacadeTest {
             long userId = i;
             executorService.submit(() -> {
                 try {
-                    String result = reservationFacade.reserve(targetSeatId, userId);
-                    if (result.equals("SUCCESS")) {
+                    Long reservationId = reservationFacade.reserve(targetSeatId, userId);
+                    if (reservationId != null) {
                         successCount.incrementAndGet();
                     } else {
                         failCount.incrementAndGet();
                     }
+                } catch (Exception e) {
+                    failCount.incrementAndGet();
                 } finally {
                     latch.countDown();
                 }

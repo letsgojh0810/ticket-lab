@@ -20,27 +20,31 @@ public class ReservationService {
     private final ReservationEventProducer reservationEventProducer;
 
     /**
-     * 좌석 선점: Reservation을 HELD 상태로 저장
+     * 좌석 선점: Seat 상태를 SELECTED로 변경 후 Reservation을 HELD 상태로 저장
      */
     @Transactional
     public Reservation hold(Long seatId, Long userId) {
         Seat seat = seatRepository.findById(seatId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 좌석입니다."));
-
-        seat.reserve();
+        seat.select();
 
         Reservation reservation = new Reservation(userId, seatId);
         return reservationRepository.save(reservation);
     }
 
     /**
-     * 예약 확정: HELD → CONFIRMED
+     * 예약 확정: HELD → CONFIRMED, Seat SELECTED → CONFIRMED
      */
     @Transactional
     public Reservation confirm(Long reservationId) {
         Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약입니다."));
         reservation.confirm();
+
+        Seat seat = seatRepository.findById(reservation.getSeatId())
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 좌석입니다."));
+        seat.confirm();
+
         return reservationRepository.save(reservation);
     }
 
@@ -53,6 +57,16 @@ public class ReservationService {
     }
 
     /**
+     * 결제 실패 등으로 인한 좌석 해제: Seat 상태를 AVAILABLE로 복원
+     */
+    @Transactional
+    public void releaseSeat(Long seatId) {
+        Seat seat = seatRepository.findById(seatId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 좌석입니다."));
+        seat.release();
+    }
+
+    /**
      * 취소: 좌석 상태 복원 + Reservation CANCELLED + Redis 삭제 + Kafka 발행
      */
     @Transactional
@@ -61,7 +75,7 @@ public class ReservationService {
             Seat seat = seatRepository.findById(seatId)
                     .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 좌석입니다."));
 
-            seat.cancel();
+            seat.release();
 
             // Reservation 상태를 CANCELLED로 업데이트 (존재하는 경우)
             reservationRepository.findBySeatIdAndUserId(seatId, userId).ifPresent(reservation -> {

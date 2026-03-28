@@ -53,7 +53,8 @@ public class AuthController {
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
             String accessToken = jwtTokenProvider.generateAccessToken(authentication.getName());
-            return ResponseEntity.ok(AuthResponse.ofLogin(accessToken));
+            User user = userService.findByEmail(request.getEmail());
+            return ResponseEntity.ok(AuthResponse.ofLogin(user.getId(), accessToken));
         } catch (BadCredentialsException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }

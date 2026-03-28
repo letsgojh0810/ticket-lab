@@ -30,6 +30,11 @@ public class UserService implements UserDetailsService {
                 .build();
     }
 
+    public User findByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new UsernameNotFoundException("사용자를 찾을 수 없습니다: " + email));
+    }
+
     @Transactional
     public User signup(String email, String rawPassword) {
         if (userRepository.existsByEmail(email)) {

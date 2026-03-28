@@ -28,8 +28,10 @@ class ReservationLoadTest {
             Long userId = (long) i;
             executorService.submit(() -> {
                 try {
-                    String result = reservationFacade.reserve(1L, userId);
-                    System.out.println("User " + userId + " -> " + result);
+                    Long reservationId = reservationFacade.reserve(1L, userId);
+                    System.out.println("User " + userId + " -> reservationId=" + reservationId);
+                } catch (Exception e) {
+                    System.out.println("User " + userId + " -> FAIL: " + e.getMessage());
                 } finally {
                     latch1.countDown();
                 }
@@ -51,8 +53,10 @@ class ReservationLoadTest {
             Long userId = (long) i;
             executorService.submit(() -> {
                 try {
-                    String result = reservationFacade.reserve(1L, userId);
-                    System.out.println("User " + userId + " (재시도) -> " + result);
+                    Long reservationId = reservationFacade.reserve(1L, userId);
+                    System.out.println("User " + userId + " (재시도) -> reservationId=" + reservationId);
+                } catch (Exception e) {
+                    System.out.println("User " + userId + " (재시도) -> FAIL: " + e.getMessage());
                 } finally {
                     latch2.countDown();
                 }

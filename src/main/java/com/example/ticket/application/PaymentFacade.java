@@ -114,6 +114,7 @@ public class PaymentFacade {
             // 2-B. 결제 실패
             payment.fail();
             reservation.cancel();
+            reservationService.releaseSeat(seatId); // DB 상태를 AVAILABLE로 복원
             seatCacheService.deleteSeatStatus(seatId);
             eventProducer.publish(ReservationEvent.failed(userId, seatId, seatNumber));
             waitingQueueService.removeActiveUser(userId);
